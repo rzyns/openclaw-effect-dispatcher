@@ -1,6 +1,14 @@
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { SpawnError } from "./errors.js"
 import { AppConfig } from "./config.js"
+
+// ---------------------------------------------------------------------------
+// Response schema — validates the webhook response at the API boundary
+// ---------------------------------------------------------------------------
+
+const SpawnResponseSchema = Schema.Struct({
+  sessionKey: Schema.String,
+})
 
 // ---------------------------------------------------------------------------
 // Service interface
@@ -19,14 +27,6 @@ export interface AgentSpawner {
 // ---------------------------------------------------------------------------
 
 export const AgentSpawner = Context.GenericTag<AgentSpawner>("AgentSpawner")
-
-// ---------------------------------------------------------------------------
-// Response type from OpenClaw webhook
-// ---------------------------------------------------------------------------
-
-interface SpawnResponse {
-  readonly sessionKey: string
-}
 
 // ---------------------------------------------------------------------------
 // Live implementation
@@ -75,14 +75,24 @@ export const AgentSpawnerLive: Layer.Layer<AgentSpawner> = Layer.effect(
           )
         }
 
-        const body = yield* Effect.tryPromise({
-          try: () => response.json() as Promise<SpawnResponse>,
+        const rawJson = yield* Effect.tryPromise({
+          try: () => response.json(),
           catch: (cause) =>
             new SpawnError({
               issueId: params.issueId,
-              reason: `Failed to parse spawn response: ${String(cause)}`,
+              reason: `Failed to read spawn response body: ${String(cause)}`,
             }),
         })
+
+        const body = yield* Schema.decodeUnknown(SpawnResponseSchema)(rawJson).pipe(
+          Effect.mapError(
+            (e) =>
+              new SpawnError({
+                issueId: params.issueId,
+                reason: `Spawn response validation failed: ${String(e)}`,
+              })
+          )
+        )
 
         return { sessionKey: body.sessionKey }
       })

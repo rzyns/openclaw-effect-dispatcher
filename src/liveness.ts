@@ -1,20 +1,20 @@
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import { LivenessCheckError } from "./errors.js"
 import { AppConfig } from "./config.js"
 import type { Liveness } from "./db.js"
 
 // ---------------------------------------------------------------------------
-// Types
+// Response schema — validates the sessions history API response
 // ---------------------------------------------------------------------------
 
-interface SessionMessage {
-  readonly role: string
-  readonly timestamp: string
-}
+const SessionMessageSchema = Schema.Struct({
+  role: Schema.String,
+  timestamp: Schema.String,
+})
 
-interface SessionHistoryResponse {
-  readonly messages: ReadonlyArray<SessionMessage>
-}
+const SessionHistoryResponseSchema = Schema.Struct({
+  messages: Schema.Array(SessionMessageSchema),
+})
 
 // ---------------------------------------------------------------------------
 // Service interface
@@ -71,10 +71,16 @@ export const LivenessCheckerLive: Layer.Layer<LivenessChecker> = Layer.effect(
           )
         }
 
-        const body = yield* Effect.tryPromise({
-          try: () => response.json() as Promise<SessionHistoryResponse>,
+        const rawJson = yield* Effect.tryPromise({
+          try: () => response.json(),
           catch: (cause) => new LivenessCheckError({ sessionKey, cause }),
         })
+
+        const body = yield* Schema.decodeUnknown(SessionHistoryResponseSchema)(rawJson).pipe(
+          Effect.mapError(
+            (e) => new LivenessCheckError({ sessionKey, cause: String(e) })
+          )
+        )
 
         // No messages → dead
         if (body.messages.length === 0) {
