@@ -1,0 +1,21 @@
+{
+  "name": "openclaw-effect-dispatcher",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Effect-TS dispatcher for Plane issue → OpenClaw agent orchestration",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "effect": "^3.19.13",
+    "@effect/sql": "0.49.0",
+    "@effect/sql-sqlite-bun": "0.49.0",
+    "@effect/experimental": "0.58.0",
+    "@effect/platform": "0.94.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.7.0"
+  }
+}
