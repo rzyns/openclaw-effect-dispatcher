@@ -115,6 +115,7 @@ const dispatchCycle = Effect.gen(function* () {
           state: issue.state,
           title: issue.title,
           agentId: "coding-implementer",
+          sessionKey: result.sessionKey,
         })
 
         return { issueId: issue.id, sessionKey: result.sessionKey }

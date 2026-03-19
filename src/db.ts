@@ -41,19 +41,21 @@ interface JobRow {
   readonly updated_at: number
 }
 
-function rowToJob(row: JobRow): Job {
-  return {
-    issueId: row.issue_id,
-    project: row.project,
-    state: row.state,
-    title: row.title,
-    agentId: row.agent_id,
-    sessionKey: row.session_key,
-    liveness: row.liveness as Liveness,
-    claimedAt: row.claimed_at,
-    updatedAt: row.updated_at,
-  }
-}
+const decodeRow = (row: JobRow): Effect.Effect<Job, DbError> =>
+  Schema.decodeUnknown(LivenessSchema)(row.liveness).pipe(
+    Effect.mapError((cause) => new DbError({ cause })),
+    Effect.map((liveness) => ({
+      issueId: row.issue_id,
+      project: row.project,
+      state: row.state,
+      title: row.title,
+      agentId: row.agent_id,
+      sessionKey: row.session_key,
+      liveness,
+      claimedAt: row.claimed_at,
+      updatedAt: row.updated_at,
+    }))
+  )
 
 // ---------------------------------------------------------------------------
 // Service interface
@@ -66,6 +68,7 @@ export interface JobStore {
     state: string
     title: string
     agentId: string
+    sessionKey: string
   }) => Effect.Effect<void, DbError>
   readonly updateLiveness: (issueId: string, liveness: Liveness) => Effect.Effect<void, DbError>
   readonly completeJob: (issueId: string) => Effect.Effect<void, DbError>
@@ -115,25 +118,28 @@ const make = Effect.gen(function* () {
     state: string
     title: string
     agentId: string
+    sessionKey: string
   }): Effect.Effect<void, DbError> => {
     const now = Date.now()
     return sql`
-      INSERT INTO jobs (issue_id, project, state, title, agent_id, liveness, claimed_at, updated_at)
+      INSERT INTO jobs (issue_id, project, state, title, agent_id, session_key, liveness, claimed_at, updated_at)
       VALUES (
         ${job.issueId},
         ${job.project},
         ${job.state},
         ${job.title},
         ${job.agentId},
+        ${job.sessionKey},
         'pending',
         ${now},
         ${now}
       )
       ON CONFLICT (issue_id) DO UPDATE SET
-        state      = excluded.state,
-        title      = excluded.title,
-        agent_id   = excluded.agent_id,
-        updated_at = excluded.updated_at
+        state       = excluded.state,
+        title       = excluded.title,
+        agent_id    = excluded.agent_id,
+        session_key = excluded.session_key,
+        updated_at  = excluded.updated_at
     `.pipe(
       Effect.asVoid,
       Effect.mapError((cause) => new DbError({ cause }))
@@ -158,17 +164,18 @@ const make = Effect.gen(function* () {
 
   const getActiveJobs = (): Effect.Effect<ReadonlyArray<Job>, DbError> =>
     sql<JobRow>`SELECT * FROM jobs`.pipe(
-      Effect.map((rows) => rows.map(rowToJob)),
-      Effect.mapError((cause) => new DbError({ cause }))
+      Effect.mapError((cause) => new DbError({ cause })),
+      Effect.flatMap((rows) => Effect.all(rows.map(decodeRow)))
     )
 
   const getJobByIssueId = (issueId: string): Effect.Effect<Option.Option<Job>, DbError> =>
     sql<JobRow>`SELECT * FROM jobs WHERE issue_id = ${issueId}`.pipe(
-      Effect.map((rows) => {
+      Effect.mapError((cause) => new DbError({ cause })),
+      Effect.flatMap((rows) => {
         const first = rows[0]
-        return first !== undefined ? Option.some(rowToJob(first)) : Option.none()
-      }),
-      Effect.mapError((cause) => new DbError({ cause }))
+        if (first === undefined) return Effect.succeed(Option.none<Job>())
+        return decodeRow(first).pipe(Effect.map(Option.some))
+      })
     )
 
   return JobStore.of({ claimJob, updateLiveness, completeJob, getActiveJobs, getJobByIssueId })
