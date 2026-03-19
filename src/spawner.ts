@@ -100,3 +100,21 @@ export const AgentSpawnerLive: Layer.Layer<AgentSpawner> = Layer.effect(
     return AgentSpawner.of({ spawn })
   })
 )
+
+// ---------------------------------------------------------------------------
+// Dry-run implementation — logs intent but never hits the real webhook
+// ---------------------------------------------------------------------------
+
+export const AgentSpawnerDryRun: Layer.Layer<AgentSpawner> = Layer.succeed(
+  AgentSpawner,
+  AgentSpawner.of({
+    spawn: (params) =>
+      Effect.gen(function* () {
+        const fakeSessionKey = `dry-run-${params.agentId}-${params.issueId}-${Date.now()}`
+        yield* Effect.logInfo(
+          `DRY RUN: would spawn ${params.agentId} for issue ${params.issueId} (task: ${params.task})`
+        )
+        return { sessionKey: fakeSessionKey }
+      }),
+  })
+)
