@@ -54,10 +54,10 @@ const PlaneIssueApiSchema = Schema.Struct({
 type PlaneIssueApi = Schema.Schema.Type<typeof PlaneIssueApiSchema>
 
 // Paginated list response
-// next is null (not undefined) when there's no next page — use NullOr
+// Only extract what we need — the pagination fields differ by Plane version
+// and we don't use them (page 1 only, < 100 issues per project).
 const PlaneIssueListSchema = Schema.Struct({
   results: Schema.Array(PlaneIssueApiSchema),
-  next: Schema.NullOr(Schema.String),
 })
 
 // Map API shape → domain shape.
