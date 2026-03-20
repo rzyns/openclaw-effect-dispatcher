@@ -1,4 +1,4 @@
-import { Config, Schema } from "effect"
+import { Config, Either, Schema } from "effect"
 
 // ---------------------------------------------------------------------------
 // All configuration comes from environment variables via the Config module.
@@ -113,9 +113,14 @@ export const AppConfig = Config.all({
   // DISPATCHER_PROJECTS_JSON env var; has a working default baked in.
   projects: Config.string("DISPATCHER_PROJECTS_JSON").pipe(
     Config.withDefault(DEFAULT_PROJECTS_JSON),
-    Config.map((str) => {
-      const parsed = JSON.parse(str)
-      return Schema.decodeUnknownSync(ProjectsConfigSchema)(parsed)
+    Config.mapOrFail((str) => {
+      try {
+        const parsed = JSON.parse(str)
+        const decoded = Schema.decodeUnknownSync(ProjectsConfigSchema)(parsed)
+        return Either.right(decoded)
+      } catch (e) {
+        return Either.left(new Error(`Invalid DISPATCHER_PROJECTS_JSON: ${String(e)}`))
+      }
     })
   ),
 })
