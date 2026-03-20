@@ -1,6 +1,6 @@
 import { Effect, Layer, Config } from "effect"
 import { JobStore, JobStoreLive, type Liveness } from "./db.js"
-import { PlaneClient, PlaneClientLive } from "./plane.js"
+import { PlaneClient, PlaneClientLive, type PlaneIssue } from "./plane.js"
 import { LivenessChecker, LivenessCheckerLive } from "./liveness.js"
 import { AgentSpawner, AgentSpawnerLive, AgentSpawnerDryRun } from "./spawner.js"
 import { AppConfig } from "./config.js"
@@ -9,9 +9,6 @@ import { routeIssue } from "./routing.js"
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-// Real project ID for the STR project in Plane
-const STR_PROJECT_ID = "a9ad5d4b-6f28-4334-a46d-dddff4a6d8e4"
 
 /** Max agents to spawn per project per dispatch cycle */
 const MAX_SPAWNS_PER_CYCLE = 2
@@ -27,6 +24,7 @@ const dispatchCycle = Effect.gen(function* () {
   const plane = yield* PlaneClient
   const liveness = yield* LivenessChecker
   const spawner = yield* AgentSpawner
+  const config = yield* AppConfig
 
   // 1. Load active jobs from SQLite
   const activeJobs = yield* jobs.getActiveJobs()
@@ -67,15 +65,6 @@ const dispatchCycle = Effect.gen(function* () {
     { concurrency: 1 }
   )
 
-  // 4. Fetch active Plane issues
-  const planeIssues = yield* plane.getActiveIssues(STR_PROJECT_ID).pipe(
-    Effect.tapError((e) =>
-      Effect.logError(`Failed to fetch Plane issues: ${String(e)}`)
-    ),
-    Effect.orElse(() => Effect.succeed([] as typeof planeIssues))
-  )
-  yield* Effect.logInfo(`Plane issues: ${planeIssues.length}`)
-
   // Build set of currently-claimed issue IDs (non-dead)
   const claimedIssueIds = new Set(
     livenessResults
@@ -83,14 +72,30 @@ const dispatchCycle = Effect.gen(function* () {
       .map((r) => r.job.issueId)
   )
 
+  // 4. Fetch active Plane issues for all configured projects
+  // Each project has its own activeStateIds + UUID→name mapping.
+  const allPlaneIssues = yield* Effect.forEach(
+    config.projects,
+    (project) =>
+      plane.getActiveIssues(project.id, project.activeStateIds, project.stateIdToName).pipe(
+        Effect.tapError((e) =>
+          Effect.logError(`Failed to fetch Plane issues for project ${project.id}: ${String(e)}`)
+        ),
+        Effect.orElse(() => Effect.succeed([] as ReadonlyArray<PlaneIssue>))
+      ),
+    { concurrency: 2 }
+  ).pipe(Effect.map((arrays) => arrays.flat()))
+
+  yield* Effect.logInfo(`Plane issues: ${allPlaneIssues.length}`)
+
   // 5. Reconcile: issues not already claimed → candidates
-  // Only include issues whose state maps to an agent
-  const candidates = planeIssues.filter(
+  // Only include issues whose state maps to an agent (state is now a name, not UUID)
+  const candidates = allPlaneIssues.filter(
     (issue) => !claimedIssueIds.has(issue.id) && routeIssue(issue.state) !== null
   )
   yield* Effect.logInfo(`Spawn candidates: ${candidates.length}`)
 
-  // 6. Spawn agents for candidates (max MAX_SPAWNS_PER_CYCLE)
+  // 6. Spawn agents for candidates (max MAX_SPAWNS_PER_CYCLE across all projects)
   const toSpawn = candidates.slice(0, MAX_SPAWNS_PER_CYCLE)
 
   const spawnResults = yield* Effect.forEach(

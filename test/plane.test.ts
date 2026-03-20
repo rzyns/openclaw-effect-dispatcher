@@ -27,11 +27,11 @@ const testConfig = Layer.setConfigProvider(
 // ---------------------------------------------------------------------------
 
 type FetchMock = (
-  input: RequestInfo | URL,
+  input: string | URL | Request,
   init?: RequestInit
 ) => Promise<Response>
 
-function withFetchMock(mockFn: FetchMock, effect: Effect.Effect<unknown, unknown, PlaneClient>) {
+function withFetchMock<A, E>(mockFn: FetchMock, effect: Effect.Effect<A, E, PlaneClient>): Effect.Effect<A, E, PlaneClient> {
   const original = globalThis.fetch
   return Effect.acquireUseRelease(
     Effect.sync(() => {
@@ -88,13 +88,32 @@ const fakeListResponse = (issues: ReturnType<typeof fakeIssueBody>[]) => ({
 })
 
 // ---------------------------------------------------------------------------
+// Test fixtures — state UUIDs and name mapping
+// ---------------------------------------------------------------------------
+
+// Real STR UUIDs from config.json
+const PREPARE_UUID = "c2c4ba94-5acb-46ec-b28f-8d38f8592d9c"
+const TEST_UUID    = "102028a4-84b1-4a53-a853-55b256d3aa0a"
+const REVIEW_UUID  = "c4c5ed11-df2f-4025-ae63-6e62feac072e"
+const DONE_UUID    = "d8b759e9-8bff-4c2d-8979-95f4a44d6cc3"
+
+const testStateIdToName: Record<string, string> = {
+  [PREPARE_UUID]: "Prepare",
+  [TEST_UUID]:    "Test",
+  [REVIEW_UUID]:  "Review",
+  [DONE_UUID]:    "Done",
+}
+
+const activeStateIds = [PREPARE_UUID, TEST_UUID, REVIEW_UUID]
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("PlaneClientLive", () => {
   describe("getActiveIssues", () => {
     it("maps Plane API response to PlaneIssue domain type", async () => {
-      const apiIssue = fakeIssueBody({ id: "issue-1", name: "My Feature", state: "c2c4ba94-prepare", assignees: ["user-1"] })
+      const apiIssue = fakeIssueBody({ id: "issue-1", name: "My Feature", state: PREPARE_UUID, assignees: ["user-1"] })
       const listResponse = fakeListResponse([apiIssue])
 
       const result = await Effect.runPromise(
@@ -106,7 +125,7 @@ describe("PlaneClientLive", () => {
             }),
           Effect.gen(function* () {
             const client = yield* PlaneClient
-            return yield* client.getActiveIssues("project-abc")
+            return yield* client.getActiveIssues("project-abc", activeStateIds, testStateIdToName)
           })
         ).pipe(
           Effect.provide(PlaneClientLive),
@@ -119,8 +138,76 @@ describe("PlaneClientLive", () => {
       expect(issue.id).toBe("issue-1")
       expect(issue.title).toBe("My Feature")   // name → title mapping
       expect(issue.projectId).toBe("project-abc")
-      expect(issue.state).toBe("c2c4ba94-prepare")
+      expect(issue.state).toBe("Prepare")      // UUID → name resolved
       expect(issue.assigneeId).toBe("user-1")
+    })
+
+    it("resolves state UUID to human-readable name in returned PlaneIssue", async () => {
+      // The API returns UUIDs; the client must resolve them to names
+      const apiIssue = fakeIssueBody({ id: "issue-uuid-resolve", state: REVIEW_UUID })
+      const result = await Effect.runPromise(
+        withFetchMock(
+          async () => new Response(JSON.stringify(fakeListResponse([apiIssue])), { status: 200 }),
+          Effect.gen(function* () {
+            const client = yield* PlaneClient
+            return yield* client.getActiveIssues("project-abc", activeStateIds, testStateIdToName)
+          })
+        ).pipe(
+          Effect.provide(PlaneClientLive),
+          Effect.provide(testConfig)
+        )
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0]!.state).toBe("Review")  // UUID resolved to name
+    })
+
+    it("falls back to raw UUID when stateIdToName has no entry", async () => {
+      const unknownUUID = "00000000-0000-0000-0000-000000000000"
+      const apiIssue = fakeIssueBody({ id: "issue-fallback", state: unknownUUID })
+      const result = await Effect.runPromise(
+        withFetchMock(
+          async () => new Response(JSON.stringify(fakeListResponse([apiIssue])), { status: 200 }),
+          Effect.gen(function* () {
+            const client = yield* PlaneClient
+            // Include the unknown UUID in activeStateIds so it passes the filter
+            return yield* client.getActiveIssues(
+              "project-abc",
+              [unknownUUID],
+              testStateIdToName  // does not contain unknownUUID
+            )
+          })
+        ).pipe(
+          Effect.provide(PlaneClientLive),
+          Effect.provide(testConfig)
+        )
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0]!.state).toBe(unknownUUID)  // fallback: raw UUID returned
+    })
+
+    it("filters out issues whose state UUID is not in activeStateIds", async () => {
+      // DONE_UUID is not in activeStateIds — should be excluded
+      const activeIssue = fakeIssueBody({ id: "issue-active", state: PREPARE_UUID })
+      const doneIssue   = fakeIssueBody({ id: "issue-done",   state: DONE_UUID })
+      const listResponse = fakeListResponse([activeIssue, doneIssue])
+
+      const result = await Effect.runPromise(
+        withFetchMock(
+          async () => new Response(JSON.stringify(listResponse), { status: 200 }),
+          Effect.gen(function* () {
+            const client = yield* PlaneClient
+            return yield* client.getActiveIssues("project-abc", activeStateIds, testStateIdToName)
+          })
+        ).pipe(
+          Effect.provide(PlaneClientLive),
+          Effect.provide(testConfig)
+        )
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0]!.id).toBe("issue-active")
     })
 
     it("returns empty array when results is empty", async () => {
@@ -130,7 +217,28 @@ describe("PlaneClientLive", () => {
             new Response(JSON.stringify(fakeListResponse([])), { status: 200 }),
           Effect.gen(function* () {
             const client = yield* PlaneClient
-            return yield* client.getActiveIssues("project-abc")
+            return yield* client.getActiveIssues("project-abc", activeStateIds, testStateIdToName)
+          })
+        ).pipe(
+          Effect.provide(PlaneClientLive),
+          Effect.provide(testConfig)
+        )
+      )
+
+      expect(result).toHaveLength(0)
+    })
+
+    it("returns empty array when all issues are in non-active states", async () => {
+      // DONE_UUID is not in activeStateIds
+      const doneIssue1 = fakeIssueBody({ id: "issue-done-1", state: DONE_UUID })
+      const doneIssue2 = fakeIssueBody({ id: "issue-done-2", state: DONE_UUID })
+
+      const result = await Effect.runPromise(
+        withFetchMock(
+          async () => new Response(JSON.stringify(fakeListResponse([doneIssue1, doneIssue2])), { status: 200 }),
+          Effect.gen(function* () {
+            const client = yield* PlaneClient
+            return yield* client.getActiveIssues("project-abc", activeStateIds, testStateIdToName)
           })
         ).pipe(
           Effect.provide(PlaneClientLive),
@@ -142,14 +250,14 @@ describe("PlaneClientLive", () => {
     })
 
     it("sets assigneeId to null when assignees array is empty", async () => {
-      const apiIssue = fakeIssueBody({ assignees: [] })
+      const apiIssue = fakeIssueBody({ state: PREPARE_UUID, assignees: [] })
       const result = await Effect.runPromise(
         withFetchMock(
           async () =>
             new Response(JSON.stringify(fakeListResponse([apiIssue])), { status: 200 }),
           Effect.gen(function* () {
             const client = yield* PlaneClient
-            return yield* client.getActiveIssues("project-abc")
+            return yield* client.getActiveIssues("project-abc", activeStateIds, testStateIdToName)
           })
         ).pipe(
           Effect.provide(PlaneClientLive),
@@ -166,7 +274,7 @@ describe("PlaneClientLive", () => {
           async () => new Response("Not Found", { status: 404 }),
           Effect.gen(function* () {
             const client = yield* PlaneClient
-            return yield* client.getActiveIssues("project-abc")
+            return yield* client.getActiveIssues("project-abc", activeStateIds, testStateIdToName)
           })
         ).pipe(
           Effect.provide(PlaneClientLive),
@@ -191,7 +299,7 @@ describe("PlaneClientLive", () => {
           async () => { throw new Error("ECONNREFUSED") },
           Effect.gen(function* () {
             const client = yield* PlaneClient
-            return yield* client.getActiveIssues("project-abc")
+            return yield* client.getActiveIssues("project-abc", activeStateIds, testStateIdToName)
           })
         ).pipe(
           Effect.provide(PlaneClientLive),
@@ -217,7 +325,7 @@ describe("PlaneClientLive", () => {
             new Response(JSON.stringify({ unexpected: "shape" }), { status: 200 }),
           Effect.gen(function* () {
             const client = yield* PlaneClient
-            return yield* client.getActiveIssues("project-abc")
+            return yield* client.getActiveIssues("project-abc", activeStateIds, testStateIdToName)
           })
         ).pipe(
           Effect.provide(PlaneClientLive),
