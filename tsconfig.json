@@ -13,6 +13,6 @@
     "rootDir": "./",
     "types": ["bun-types"]
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": ["src/**/*", "test/**/*", "plugin/**/*"],
   "exclude": ["node_modules", "dist"]
 }
