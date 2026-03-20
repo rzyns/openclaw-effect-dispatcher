@@ -1,6 +1,6 @@
 import { ConfigError, Context, Effect, Layer, Option } from "effect"
-import { SqlClient, SqlSchema } from "@effect/sql"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { SqlClient } from "@effect/sql"
+import { SqliteClient } from "@effect/sql-sqlite-node"
 import { Schema } from "effect"
 import { DbError } from "./errors.js"
 import { AppConfig } from "./config.js"
@@ -26,7 +26,7 @@ export interface Job {
 }
 
 // ---------------------------------------------------------------------------
-// Raw DB row shape (snake_case — @effect/sql-sqlite-bun returns verbatim names)
+// Raw DB row shape (snake_case — @effect/sql returns verbatim column names)
 // ---------------------------------------------------------------------------
 
 interface JobRow {
@@ -218,12 +218,74 @@ export const JobStoreLive: Layer.Layer<JobStore, ConfigError.ConfigError | DbErr
   }).pipe(Effect.mapError((cause) => new DbError({ cause })))
 )
 
-/** Test layer — in-memory SQLite, no file I/O */
-export const JobStoreMemory =
-  Layer.provide(
-    Layer.effect(JobStore, make),
-    SqliteClient.layer({ filename: ":memory:" })
-  )
+/** Test layer — pure in-memory Map, no SQLite, works with both Bun and Node */
+export const JobStoreMemory: Layer.Layer<JobStore, never> = Layer.sync(JobStore, () => {
+  const store = new Map<string, Job>()
+
+  const claimJob = (job: {
+    issueId: string
+    project: string
+    state: string
+    title: string
+    agentId: string
+    sessionKey: string
+  }): Effect.Effect<void, DbError> => {
+    const now = Date.now()
+    const existing = store.get(job.issueId)
+    store.set(job.issueId, {
+      issueId: job.issueId,
+      project: job.project,
+      state: job.state,
+      title: job.title,
+      agentId: job.agentId,
+      sessionKey: job.sessionKey,
+      liveness: existing?.liveness ?? "pending",
+      claimedAt: existing?.claimedAt ?? now,
+      updatedAt: now,
+    })
+    return Effect.void
+  }
+
+  const updateLiveness = (issueId: string, liveness: Liveness): Effect.Effect<void, DbError> => {
+    const existing = store.get(issueId)
+    if (existing) {
+      store.set(issueId, { ...existing, liveness, updatedAt: Date.now() })
+    }
+    return Effect.void
+  }
+
+  const completeJob = (issueId: string): Effect.Effect<void, DbError> => {
+    store.delete(issueId)
+    return Effect.void
+  }
+
+  const getActiveJobs = (): Effect.Effect<ReadonlyArray<Job>, DbError> =>
+    Effect.succeed(Array.from(store.values()))
+
+  const getJobByIssueId = (issueId: string): Effect.Effect<Option.Option<Job>, DbError> => {
+    const job = store.get(issueId)
+    return Effect.succeed(job !== undefined ? Option.some(job) : Option.none())
+  }
+
+  const getJobBySessionKey = (sessionKey: string): Effect.Effect<Option.Option<Job>, DbError> => {
+    for (const job of store.values()) {
+      if (job.sessionKey === sessionKey) return Effect.succeed(Option.some(job))
+    }
+    return Effect.succeed(Option.none())
+  }
+
+  const updateSessionKey = (oldKey: string, newKey: string): Effect.Effect<void, DbError> => {
+    for (const [issueId, job] of store.entries()) {
+      if (job.sessionKey === oldKey) {
+        store.set(issueId, { ...job, sessionKey: newKey, updatedAt: Date.now() })
+        break
+      }
+    }
+    return Effect.void
+  }
+
+  return JobStore.of({ claimJob, updateLiveness, completeJob, getActiveJobs, getJobByIssueId, getJobBySessionKey, updateSessionKey })
+})
 
 /** Build a JobStore layer for a specific DB file path (used by plugin). */
 export const makeJobStoreLive = (dbPath: string): Layer.Layer<JobStore, ConfigError.ConfigError | DbError> =>
