@@ -1,0 +1,13 @@
+{
+  "id": "plane-dispatcher",
+  "name": "Plane Dispatcher",
+  "description": "Effect-TS Plane dispatcher — routes issues to coding agents",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "intervalMs": { "type": "number", "default": 120000 },
+      "dbPath": { "type": "string" }
+    }
+  }
+}

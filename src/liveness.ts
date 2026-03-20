@@ -2,6 +2,7 @@ import { ConfigError, Context, Effect, Layer, Schema } from "effect"
 import { LivenessCheckError } from "./errors.js"
 import { AppConfig } from "./config.js"
 import type { Liveness } from "./db.js"
+import type { PluginRuntime } from "openclaw/plugin-sdk/core"
 
 // ---------------------------------------------------------------------------
 // Response schema — validates the sessions history API response
@@ -38,6 +39,72 @@ const ONE_HOUR_MS = 60 * 60 * 1000
 
 // ---------------------------------------------------------------------------
 // Live implementation
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Runtime-based implementation — uses api.runtime.subagent.getSessionMessages()
+// This is the preferred implementation when running as a plugin.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a LivenessChecker Layer backed by the OpenClaw plugin runtime.
+ * Uses getSessionMessages() instead of a REST endpoint, which gives accurate
+ * in-process access to session state.
+ */
+export function makeLivenessCheckerWithRuntime(runtime: PluginRuntime): Layer.Layer<LivenessChecker> {
+  return Layer.succeed(
+    LivenessChecker,
+    LivenessChecker.of({
+      check: (sessionKey: string): Effect.Effect<Liveness, LivenessCheckError> =>
+        Effect.tryPromise({
+          try: () => runtime.subagent.getSessionMessages({ sessionKey, limit: 1 }),
+          catch: (cause) => new LivenessCheckError({ sessionKey, cause }),
+        }).pipe(
+          Effect.flatMap((result) => {
+            if (result.messages.length === 0) {
+              return Effect.succeed("dead" as const)
+            }
+
+            const lastMsg = result.messages[result.messages.length - 1]
+            if (lastMsg === undefined || lastMsg === null) {
+              return Effect.succeed("dead" as const)
+            }
+
+            // Try to extract a timestamp from the message object
+            const timestamp =
+              typeof lastMsg === "object" &&
+              lastMsg !== null &&
+              "timestamp" in lastMsg &&
+              (typeof (lastMsg as Record<string, unknown>)["timestamp"] === "string" ||
+                typeof (lastMsg as Record<string, unknown>)["timestamp"] === "number")
+                ? (lastMsg as Record<string, unknown>)["timestamp"]
+                : null
+
+            if (timestamp === null) {
+              // No timestamp — assume active (has messages, can't tell age)
+              return Effect.succeed("active" as const)
+            }
+
+            const ts =
+              typeof timestamp === "number"
+                ? timestamp
+                : new Date(timestamp as string).getTime()
+
+            const age = Date.now() - ts
+
+            if (age < ONE_HOUR_MS) {
+              return Effect.succeed("active" as const)
+            }
+
+            return Effect.succeed("stale" as const)
+          })
+        ),
+    })
+  )
+}
+
+// ---------------------------------------------------------------------------
+// REST-endpoint-based Live implementation (standalone binary fallback)
 // ---------------------------------------------------------------------------
 
 export const LivenessCheckerLive: Layer.Layer<LivenessChecker, ConfigError.ConfigError> = Layer.effect(

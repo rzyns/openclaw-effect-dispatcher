@@ -74,6 +74,10 @@ export interface JobStore {
   readonly completeJob: (issueId: string) => Effect.Effect<void, DbError>
   readonly getActiveJobs: () => Effect.Effect<ReadonlyArray<Job>, DbError>
   readonly getJobByIssueId: (issueId: string) => Effect.Effect<Option.Option<Job>, DbError>
+  /** Look up a job by its current session_key value (used by plugin hooks). */
+  readonly getJobBySessionKey: (sessionKey: string) => Effect.Effect<Option.Option<Job>, DbError>
+  /** Atomically replace one session_key value with another (used to resolve runId → real key). */
+  readonly updateSessionKey: (oldKey: string, newKey: string) => Effect.Effect<void, DbError>
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +182,27 @@ const make = Effect.gen(function* () {
       })
     )
 
-  return JobStore.of({ claimJob, updateLiveness, completeJob, getActiveJobs, getJobByIssueId })
+  const getJobBySessionKey = (sessionKey: string): Effect.Effect<Option.Option<Job>, DbError> =>
+    sql<JobRow>`SELECT * FROM jobs WHERE session_key = ${sessionKey}`.pipe(
+      Effect.mapError((cause) => new DbError({ cause })),
+      Effect.flatMap((rows) => {
+        const first = rows[0]
+        if (first === undefined) return Effect.succeed(Option.none<Job>())
+        return decodeRow(first).pipe(Effect.map(Option.some))
+      })
+    )
+
+  const updateSessionKey = (oldKey: string, newKey: string): Effect.Effect<void, DbError> =>
+    sql`
+      UPDATE jobs
+      SET session_key = ${newKey}, updated_at = ${Date.now()}
+      WHERE session_key = ${oldKey}
+    `.pipe(
+      Effect.asVoid,
+      Effect.mapError((cause) => new DbError({ cause }))
+    )
+
+  return JobStore.of({ claimJob, updateLiveness, completeJob, getActiveJobs, getJobByIssueId, getJobBySessionKey, updateSessionKey })
 })
 
 // ---------------------------------------------------------------------------
@@ -199,4 +223,11 @@ export const JobStoreMemory =
   Layer.provide(
     Layer.effect(JobStore, make),
     SqliteClient.layer({ filename: ":memory:" })
+  )
+
+/** Build a JobStore layer for a specific DB file path (used by plugin). */
+export const makeJobStoreLive = (dbPath: string): Layer.Layer<JobStore, ConfigError.ConfigError | DbError> =>
+  Layer.provide(
+    Layer.effect(JobStore, make),
+    SqliteClient.layer({ filename: dbPath })
   )

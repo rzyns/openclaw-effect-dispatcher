@@ -187,4 +187,72 @@ describe("JobStore", () => {
       ).resolves.toBeUndefined()
     })
   })
+
+  describe("getJobBySessionKey", () => {
+    it("returns Some when job with matching session_key exists", async () => {
+      const result = await run(
+        Effect.gen(function* () {
+          const store = yield* JobStore
+          yield* store.claimJob({ issueId: "E-1", project: "STR", state: "Prepare", title: "E", agentId: "a", sessionKey: "sk-e" })
+          return yield* store.getJobBySessionKey("sk-e")
+        })
+      )
+      expect(Option.isSome(result)).toBe(true)
+      if (Option.isSome(result)) {
+        expect(result.value.issueId).toBe("E-1")
+        expect(result.value.sessionKey).toBe("sk-e")
+      }
+    })
+
+    it("returns None when no job has that session_key", async () => {
+      const result = await run(
+        Effect.gen(function* () {
+          const store = yield* JobStore
+          return yield* store.getJobBySessionKey("no-such-key")
+        })
+      )
+      expect(Option.isNone(result)).toBe(true)
+    })
+  })
+
+  describe("updateSessionKey", () => {
+    it("replaces session_key on an existing job", async () => {
+      const result = await run(
+        Effect.gen(function* () {
+          const store = yield* JobStore
+          yield* store.claimJob({ issueId: "F-1", project: "STR", state: "Prepare", title: "F", agentId: "a", sessionKey: "run-id-1" })
+          yield* store.updateSessionKey("run-id-1", "real-session-key-1")
+          return yield* store.getJobBySessionKey("real-session-key-1")
+        })
+      )
+      expect(Option.isSome(result)).toBe(true)
+      if (Option.isSome(result)) {
+        expect(result.value.issueId).toBe("F-1")
+        expect(result.value.sessionKey).toBe("real-session-key-1")
+      }
+    })
+
+    it("old session_key is no longer findable after update", async () => {
+      const result = await run(
+        Effect.gen(function* () {
+          const store = yield* JobStore
+          yield* store.claimJob({ issueId: "G-1", project: "STR", state: "Prepare", title: "G", agentId: "a", sessionKey: "old-key" })
+          yield* store.updateSessionKey("old-key", "new-key")
+          return yield* store.getJobBySessionKey("old-key")
+        })
+      )
+      expect(Option.isNone(result)).toBe(true)
+    })
+
+    it("is a no-op when old session_key does not match any job", async () => {
+      await expect(
+        run(
+          Effect.gen(function* () {
+            const store = yield* JobStore
+            yield* store.updateSessionKey("non-existent", "whatever")
+          })
+        )
+      ).resolves.toBeUndefined()
+    })
+  })
 })
