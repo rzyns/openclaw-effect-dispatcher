@@ -246,6 +246,7 @@ describe("AgentSpawnerLive", () => {
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) {
         const failure = Cause.failureOption(exit.cause)
+        expect(Option.isSome(failure)).toBe(true)
         if (Option.isSome(failure)) {
           expect(failure.value).toBeInstanceOf(SpawnError)
           expect((failure.value as InstanceType<typeof SpawnError>).reason).toMatch(/401/)
@@ -275,6 +276,7 @@ describe("AgentSpawnerLive", () => {
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) {
         const failure = Cause.failureOption(exit.cause)
+        expect(Option.isSome(failure)).toBe(true)
         if (Option.isSome(failure)) {
           expect(failure.value).toBeInstanceOf(SpawnError)
         }
@@ -302,6 +304,7 @@ describe("AgentSpawnerLive", () => {
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) {
         const failure = Cause.failureOption(exit.cause)
+        expect(Option.isSome(failure)).toBe(true)
         if (Option.isSome(failure)) {
           expect(failure.value).toBeInstanceOf(SpawnError)
           expect((failure.value as InstanceType<typeof SpawnError>).reason).toMatch(/validation failed/)
@@ -329,6 +332,7 @@ describe("AgentSpawnerLive", () => {
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) {
         const failure = Cause.failureOption(exit.cause)
+        expect(Option.isSome(failure)).toBe(true)
         if (Option.isSome(failure)) {
           expect(failure.value).toBeInstanceOf(SpawnError)
           expect((failure.value as InstanceType<typeof SpawnError>).reason).toMatch(/validation failed/)
