@@ -7,7 +7,8 @@ import { AppConfig } from "./config.js"
 // ---------------------------------------------------------------------------
 
 const SpawnResponseSchema = Schema.Struct({
-  sessionKey: Schema.String,
+  ok: Schema.Boolean,
+  runId: Schema.String,
 })
 
 // ---------------------------------------------------------------------------
@@ -55,8 +56,8 @@ export const AgentSpawnerLive: Layer.Layer<AgentSpawner, ConfigError.ConfigError
               },
               body: JSON.stringify({
                 agentId: params.agentId,
-                task: params.task,
-                metadata: { issueId: params.issueId },
+                message: params.task,
+                name: `Plane issue ${params.issueId}`,
               }),
             }),
           catch: (cause) =>
@@ -94,7 +95,7 @@ export const AgentSpawnerLive: Layer.Layer<AgentSpawner, ConfigError.ConfigError
           )
         )
 
-        return { sessionKey: body.sessionKey }
+        return { sessionKey: body.runId }
       })
 
     return AgentSpawner.of({ spawn })
