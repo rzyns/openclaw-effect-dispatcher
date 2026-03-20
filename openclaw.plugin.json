@@ -2,7 +2,6 @@
   "id": "plane-dispatcher",
   "name": "Plane Dispatcher",
   "description": "Effect-TS Plane dispatcher — routes issues to coding agents",
-  "extensions": ["./plugin/index.ts"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

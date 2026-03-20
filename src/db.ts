@@ -226,8 +226,8 @@ export const JobStoreMemory =
   )
 
 /** Build a JobStore layer for a specific DB file path (used by plugin). */
-export const makeJobStoreLive = (dbPath: string): Layer.Layer<JobStore, unknown> =>
+export const makeJobStoreLive = (dbPath: string): Layer.Layer<JobStore, ConfigError.ConfigError | DbError> =>
   Layer.provide(
-    Layer.effect(JobStore, make).pipe(Layer.mapError((cause) => new DbError({ cause }))),
+    Layer.effect(JobStore, make),
     SqliteClient.layer({ filename: dbPath })
   )
