@@ -25,7 +25,11 @@ export interface IssuePatch {
 // ---------------------------------------------------------------------------
 
 export interface PlaneClient {
-  readonly getActiveIssues: (projectId: string) => Effect.Effect<ReadonlyArray<PlaneIssue>, PlaneApiError>
+  readonly getActiveIssues: (
+    projectId: string,
+    activeStateIds: ReadonlyArray<string>,
+    stateIdToName: Readonly<Record<string, string>>
+  ) => Effect.Effect<ReadonlyArray<PlaneIssue>, PlaneApiError>
   readonly patchIssue: (projectId: string, issueId: string, patch: IssuePatch) => Effect.Effect<PlaneIssue, PlaneApiError>
   readonly postComment: (projectId: string, issueId: string, html: string) => Effect.Effect<void, PlaneApiError>
 }
@@ -56,11 +60,17 @@ const PlaneIssueListSchema = Schema.Struct({
   next: Schema.NullOr(Schema.String),
 })
 
-// Map API shape → domain shape
-const mapIssue = (raw: PlaneIssueApi, projectId: string): PlaneIssue => ({
+// Map API shape → domain shape.
+// Resolves state UUID to human-readable name via stateIdToName.
+// Falls back to the raw UUID if the mapping is unknown (defensive).
+const mapIssue = (
+  raw: PlaneIssueApi,
+  projectId: string,
+  stateIdToName: Readonly<Record<string, string>>
+): PlaneIssue => ({
   id: raw.id,
   projectId,
-  state: raw.state,
+  state: stateIdToName[raw.state] ?? raw.state, // UUID → name; fallback to UUID
   title: raw.name,              // Plane uses "name", domain uses "title"
   assigneeId: raw.assignees[0] ?? null,
 })
@@ -80,13 +90,17 @@ export const PlaneClientLive: Layer.Layer<PlaneClient> = Layer.effect(
     }
 
     // -----------------------------------------------------------------------
-    // getActiveIssues — fetches page 1 of all issues for a project.
-    // The caller can pass active stateIds to filter client-side, but since
-    // Plane issues are < 100 per project, we just fetch all and return them.
-    // The dispatcher's reconcile loop handles filtering by what's already
-    // claimed vs what needs spawning.
+    // getActiveIssues — fetches all issues for a project, filters to those
+    // whose state UUID is in activeStateIds, then resolves UUIDs to names.
+    //
+    // Design: fetch all + client-side filter rather than N API calls per state.
+    // Plane projects have < 100 issues, so a single fetch is fine.
     // -----------------------------------------------------------------------
-    const getActiveIssues = (projectId: string): Effect.Effect<ReadonlyArray<PlaneIssue>, PlaneApiError> =>
+    const getActiveIssues = (
+      projectId: string,
+      activeStateIds: ReadonlyArray<string>,
+      stateIdToName: Readonly<Record<string, string>>
+    ): Effect.Effect<ReadonlyArray<PlaneIssue>, PlaneApiError> =>
       Effect.gen(function* () {
         const url = `${base}/projects/${projectId}/issues/`
 
@@ -114,7 +128,11 @@ export const PlaneClientLive: Layer.Layer<PlaneClient> = Layer.effect(
           )
         )
 
-        return body.results.map((raw) => mapIssue(raw, projectId))
+        // Filter to active states only, then resolve UUIDs → names
+        const activeSet = new Set(activeStateIds)
+        return body.results
+          .filter((raw) => activeSet.has(raw.state))
+          .map((raw) => mapIssue(raw, projectId, stateIdToName))
       })
 
     // -----------------------------------------------------------------------
@@ -163,7 +181,10 @@ export const PlaneClientLive: Layer.Layer<PlaneClient> = Layer.effect(
           )
         )
 
-        return mapIssue(issue, projectId)
+        // patchIssue doesn't have stateIdToName context — return the raw UUID
+        // from the API (caller knows what they patched). If needed, callers can
+        // resolve via their project config.
+        return mapIssue(issue, projectId, {})
       })
 
     // -----------------------------------------------------------------------
@@ -208,7 +229,7 @@ export const PlaneClientLive: Layer.Layer<PlaneClient> = Layer.effect(
 export const PlaneClientStub: Layer.Layer<PlaneClient> = Layer.succeed(
   PlaneClient,
   PlaneClient.of({
-    getActiveIssues: (_projectId) =>
+    getActiveIssues: (_projectId, _activeStateIds, _stateIdToName) =>
       Effect.logDebug("PlaneClient.getActiveIssues — stub, returning []").pipe(
         Effect.as([])
       ),
