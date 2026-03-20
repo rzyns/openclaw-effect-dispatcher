@@ -1,18 +1,17 @@
-import { Effect, Layer, ConfigProvider } from "effect"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { Effect, Layer, Config } from "effect"
 import { JobStore, JobStoreLive, type Liveness } from "./db.js"
-import { PlaneClient, PlaneClientStub } from "./plane.js"
+import { PlaneClient, PlaneClientLive } from "./plane.js"
 import { LivenessChecker, LivenessCheckerLive } from "./liveness.js"
-import { AgentSpawner, AgentSpawnerLive } from "./spawner.js"
+import { AgentSpawner, AgentSpawnerLive, AgentSpawnerDryRun } from "./spawner.js"
 import { AppConfig } from "./config.js"
+import { routeIssue } from "./routing.js"
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-// Hardcoded STR project ID for the initial scaffold.
-// TODO: move to config once multi-project support is needed.
-const STR_PROJECT_ID = "str"
+// Real project ID for the STR project in Plane
+const STR_PROJECT_ID = "a9ad5d4b-6f28-4334-a46d-dddff4a6d8e4"
 
 /** Max agents to spawn per project per dispatch cycle */
 const MAX_SPAWNS_PER_CYCLE = 2
@@ -68,7 +67,7 @@ const dispatchCycle = Effect.gen(function* () {
     { concurrency: 1 }
   )
 
-  // 4. Fetch active Plane issues (stub returns [] for now)
+  // 4. Fetch active Plane issues
   const planeIssues = yield* plane.getActiveIssues(STR_PROJECT_ID).pipe(
     Effect.tapError((e) =>
       Effect.logError(`Failed to fetch Plane issues: ${String(e)}`)
@@ -85,7 +84,10 @@ const dispatchCycle = Effect.gen(function* () {
   )
 
   // 5. Reconcile: issues not already claimed → candidates
-  const candidates = planeIssues.filter((issue) => !claimedIssueIds.has(issue.id))
+  // Only include issues whose state maps to an agent
+  const candidates = planeIssues.filter(
+    (issue) => !claimedIssueIds.has(issue.id) && routeIssue(issue.state) !== null
+  )
   yield* Effect.logInfo(`Spawn candidates: ${candidates.length}`)
 
   // 6. Spawn agents for candidates (max MAX_SPAWNS_PER_CYCLE)
@@ -95,11 +97,18 @@ const dispatchCycle = Effect.gen(function* () {
     toSpawn,
     (issue) =>
       Effect.gen(function* () {
-        yield* Effect.logInfo(`Spawning agent for issue: ${issue.id} — ${issue.title}`)
+        const agentId = routeIssue(issue.state)
+        if (agentId === null) {
+          // Should not happen (filtered above), but be explicit
+          yield* Effect.logDebug(`Skipping issue ${issue.id} — state '${issue.state}' not routable`)
+          return null
+        }
+
+        yield* Effect.logInfo(`Spawning ${agentId} for issue: ${issue.id} — ${issue.title} [state: ${issue.state}]`)
 
         const result = yield* spawner
           .spawn({
-            agentId: "coding-implementer",
+            agentId,
             task: `Work on Plane issue ${issue.id}: ${issue.title}`,
             issueId: issue.id,
           })
@@ -114,7 +123,7 @@ const dispatchCycle = Effect.gen(function* () {
           project: issue.projectId,
           state: issue.state,
           title: issue.title,
-          agentId: "coding-implementer",
+          agentId,
           sessionKey: result.sessionKey,
         })
 
@@ -135,11 +144,17 @@ const dispatchCycle = Effect.gen(function* () {
 // Application layer composition
 // ---------------------------------------------------------------------------
 
+// DRY_RUN=true → use AgentSpawnerDryRun; otherwise AgentSpawnerLive
+const SpawnerLayer = Effect.gen(function* () {
+  const dryRun = yield* Config.boolean("DRY_RUN").pipe(Config.withDefault(false))
+  return dryRun ? AgentSpawnerDryRun : AgentSpawnerLive
+}).pipe(Layer.unwrapEffect)
+
 const AppLayer = Layer.mergeAll(
   JobStoreLive,
-  PlaneClientStub,
+  PlaneClientLive,
   LivenessCheckerLive,
-  AgentSpawnerLive
+  SpawnerLayer
 )
 
 // ---------------------------------------------------------------------------

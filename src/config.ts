@@ -15,6 +15,10 @@ export const AppConfig = Config.all({
     Config.withDefault("./dispatcher.db")
   ),
   dispatcherDiscordChannel: Config.string("DISPATCHER_DISCORD_CHANNEL"),
+  planeApiKey: Config.string("PLANE_API_KEY"),
+  planeUrl: Config.string("PLANE_URL").pipe(
+    Config.withDefault("https://plane.svc.dziurzynscy.com/api/v1/workspaces/warsztat")
+  ),
 })
 
 export type AppConfigShape = Config.Config.Success<typeof AppConfig>
