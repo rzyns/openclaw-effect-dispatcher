@@ -1,6 +1,6 @@
 import { Effect, Layer, Config } from "effect"
 import { JobStore, JobStoreLive, type Liveness } from "./db.js"
-import { PlaneClient, PlaneClientLive } from "./plane.js"
+import { PlaneClient, PlaneClientLive, type PlaneIssue } from "./plane.js"
 import { LivenessChecker, LivenessCheckerLive } from "./liveness.js"
 import { AgentSpawner, AgentSpawnerLive, AgentSpawnerDryRun } from "./spawner.js"
 import { AppConfig } from "./config.js"
@@ -81,7 +81,7 @@ const dispatchCycle = Effect.gen(function* () {
         Effect.tapError((e) =>
           Effect.logError(`Failed to fetch Plane issues for project ${project.id}: ${String(e)}`)
         ),
-        Effect.orElse(() => Effect.succeed([] as ReturnType<typeof plane.getActiveIssues> extends Effect.Effect<infer A, any, any> ? A : never))
+        Effect.orElse(() => Effect.succeed([] as ReadonlyArray<PlaneIssue>))
       ),
     { concurrency: 2 }
   ).pipe(Effect.map((arrays) => arrays.flat()))

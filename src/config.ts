@@ -1,4 +1,4 @@
-import { Config } from "effect"
+import { Config, Schema } from "effect"
 
 // ---------------------------------------------------------------------------
 // All configuration comes from environment variables via the Config module.
@@ -18,6 +18,18 @@ export interface ProjectConfig {
 }
 
 export type ProjectsConfig = ReadonlyArray<ProjectConfig>
+
+// ---------------------------------------------------------------------------
+// Runtime schemas for parsing + validating DISPATCHER_PROJECTS_JSON
+// ---------------------------------------------------------------------------
+
+const ProjectConfigSchema = Schema.Struct({
+  id: Schema.String,
+  activeStateIds: Schema.Array(Schema.String),
+  stateIdToName: Schema.Record({ key: Schema.String, value: Schema.String }),
+})
+
+const ProjectsConfigSchema = Schema.Array(ProjectConfigSchema)
 
 // ---------------------------------------------------------------------------
 // Default projects JSON — extracted from memory/plane-dispatcher/config.json.
@@ -101,7 +113,10 @@ export const AppConfig = Config.all({
   // DISPATCHER_PROJECTS_JSON env var; has a working default baked in.
   projects: Config.string("DISPATCHER_PROJECTS_JSON").pipe(
     Config.withDefault(DEFAULT_PROJECTS_JSON),
-    Config.map((str) => JSON.parse(str) as ProjectsConfig)
+    Config.map((str) => {
+      const parsed = JSON.parse(str)
+      return Schema.decodeUnknownSync(ProjectsConfigSchema)(parsed)
+    })
   ),
 })
 
