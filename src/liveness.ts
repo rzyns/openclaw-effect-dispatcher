@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { ConfigError, Context, Effect, Layer, Schema } from "effect"
 import { LivenessCheckError } from "./errors.js"
 import { AppConfig } from "./config.js"
 import type { Liveness } from "./db.js"
@@ -40,7 +40,7 @@ const ONE_HOUR_MS = 60 * 60 * 1000
 // Live implementation
 // ---------------------------------------------------------------------------
 
-export const LivenessCheckerLive: Layer.Layer<LivenessChecker> = Layer.effect(
+export const LivenessCheckerLive: Layer.Layer<LivenessChecker, ConfigError.ConfigError> = Layer.effect(
   LivenessChecker,
   Effect.gen(function* () {
     const config = yield* AppConfig

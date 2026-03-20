@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Option } from "effect"
+import { ConfigError, Context, Effect, Layer, Option } from "effect"
 import { SqlClient, SqlSchema } from "@effect/sql"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { Schema } from "effect"
@@ -186,7 +186,7 @@ const make = Effect.gen(function* () {
 // ---------------------------------------------------------------------------
 
 /** Live layer — reads DB path from config, connects to SQLite file */
-export const JobStoreLive: Layer.Layer<JobStore, DbError> = Layer.unwrapEffect(
+export const JobStoreLive: Layer.Layer<JobStore, ConfigError.ConfigError | DbError> = Layer.unwrapEffect(
   Effect.gen(function* () {
     const config = yield* AppConfig
     const sqliteLayer = SqliteClient.layer({ filename: config.dispatcherDbPath })
@@ -195,7 +195,7 @@ export const JobStoreLive: Layer.Layer<JobStore, DbError> = Layer.unwrapEffect(
 )
 
 /** Test layer — in-memory SQLite, no file I/O */
-export const JobStoreMemory: Layer.Layer<JobStore | SqlClient.SqlClient> =
+export const JobStoreMemory =
   Layer.provide(
     Layer.effect(JobStore, make),
     SqliteClient.layer({ filename: ":memory:" })

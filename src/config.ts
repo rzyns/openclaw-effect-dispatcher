@@ -1,4 +1,4 @@
-import { Config, Either, Schema } from "effect"
+import { Config, ConfigError, Either, Schema } from "effect"
 
 // ---------------------------------------------------------------------------
 // All configuration comes from environment variables via the Config module.
@@ -119,7 +119,7 @@ export const AppConfig = Config.all({
         const decoded = Schema.decodeUnknownSync(ProjectsConfigSchema)(parsed)
         return Either.right(decoded)
       } catch (e) {
-        return Either.left(new Error(`Invalid DISPATCHER_PROJECTS_JSON: ${String(e)}`))
+        return Either.left(ConfigError.InvalidData([], `Invalid DISPATCHER_PROJECTS_JSON: ${String(e)}`))
       }
     })
   ),

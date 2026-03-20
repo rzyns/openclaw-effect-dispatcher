@@ -27,11 +27,11 @@ const testConfig = Layer.setConfigProvider(
 // ---------------------------------------------------------------------------
 
 type FetchMock = (
-  input: RequestInfo | URL,
+  input: string | URL | Request,
   init?: RequestInit
 ) => Promise<Response>
 
-function withFetchMock(mockFn: FetchMock, effect: Effect.Effect<unknown, unknown, PlaneClient>) {
+function withFetchMock<A, E>(mockFn: FetchMock, effect: Effect.Effect<A, E, PlaneClient>): Effect.Effect<A, E, PlaneClient> {
   const original = globalThis.fetch
   return Effect.acquireUseRelease(
     Effect.sync(() => {

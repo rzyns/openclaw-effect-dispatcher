@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { ConfigError, Context, Effect, Layer, Schema } from "effect"
 import { SpawnError } from "./errors.js"
 import { AppConfig } from "./config.js"
 
@@ -32,7 +32,7 @@ export const AgentSpawner = Context.GenericTag<AgentSpawner>("AgentSpawner")
 // Live implementation
 // ---------------------------------------------------------------------------
 
-export const AgentSpawnerLive: Layer.Layer<AgentSpawner> = Layer.effect(
+export const AgentSpawnerLive: Layer.Layer<AgentSpawner, ConfigError.ConfigError> = Layer.effect(
   AgentSpawner,
   Effect.gen(function* () {
     const config = yield* AppConfig

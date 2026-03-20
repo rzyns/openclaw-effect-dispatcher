@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { ConfigError, Context, Effect, Layer, Schema } from "effect"
 import { PlaneApiError } from "./errors.js"
 import { AppConfig } from "./config.js"
 
@@ -79,7 +79,7 @@ const mapIssue = (
 // Live implementation
 // ---------------------------------------------------------------------------
 
-export const PlaneClientLive: Layer.Layer<PlaneClient> = Layer.effect(
+export const PlaneClientLive: Layer.Layer<PlaneClient, ConfigError.ConfigError> = Layer.effect(
   PlaneClient,
   Effect.gen(function* () {
     const config = yield* AppConfig
