@@ -1,5 +1,5 @@
 {
-  "id": "plane-dispatcher",
+  "id": "openclaw-effect-dispatcher",
   "name": "Plane Dispatcher",
   "description": "Effect-TS Plane dispatcher — routes issues to coding agents",
   "configSchema": {
