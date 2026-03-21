@@ -27,7 +27,7 @@ export function normaliseAgentId(raw: string): string {
   return raw
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/[^a-z0-9_-]/g, "-")
     .replace(/^-+/, "")
     .replace(/-+$/, "")
     .slice(0, 64)
@@ -44,7 +44,7 @@ export function normaliseAgentId(raw: string): string {
  */
 export function buildAgentSessionKey(agentId: string, issueId: string): string {
   const normAgentId = normaliseAgentId(agentId)
-  const requestKey = `plane-${issueId}`
+  const requestKey = `plane-${issueId.toLowerCase()}`
   return `agent:${normAgentId}:${requestKey}`
 }
 
@@ -101,7 +101,7 @@ export const AgentSpawnerLive: Layer.Layer<AgentSpawner, ConfigError.ConfigError
         // unrelated to the session key), which caused liveness checks to always
         // see an empty session and mark every job dead immediately — leading to
         // the infinite re-queue loop observed with ARCH-17.
-        const requestKey = `plane-${params.issueId}`
+        const requestKey = `plane-${params.issueId.toLowerCase()}`
         const sessionKey = buildAgentSessionKey(params.agentId, params.issueId)
 
         const response = yield* Effect.tryPromise({

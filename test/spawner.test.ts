@@ -116,6 +116,10 @@ describe("normaliseAgentId", () => {
     const long = "a".repeat(80)
     expect(normaliseAgentId(long)).toHaveLength(64)
   })
+
+  it("preserves underscores (coding_implementer → coding_implementer)", () => {
+    expect(normaliseAgentId("coding_implementer")).toBe("coding_implementer")
+  })
 })
 
 describe("buildAgentSessionKey", () => {
@@ -133,7 +137,13 @@ describe("buildAgentSessionKey", () => {
 
   it("includes plane- prefix in the request key", () => {
     expect(buildAgentSessionKey("code-review", "FEAT-42")).toBe(
-      "agent:code-review:plane-FEAT-42"
+      "agent:code-review:plane-feat-42"
+    )
+  })
+
+  it("lowercases uppercase issueId (e.g. ABC-123 → lowercased in key)", () => {
+    expect(buildAgentSessionKey("coding-implementer", "ABC-123")).toBe(
+      "agent:coding-implementer:plane-abc-123"
     )
   })
 })
@@ -280,7 +290,7 @@ describe("AgentSpawnerLive", () => {
         )
       )
 
-      expect(capturedBody?.["sessionKey"]).toBe("plane-FEAT-99")
+      expect(capturedBody?.["sessionKey"]).toBe("plane-feat-99")
     })
   })
 
@@ -539,7 +549,7 @@ describe("AgentSpawnerDryRun", () => {
     )
 
     expect(results.a).not.toBe(results.b)
-    expect(results.a).toMatch(/issue-A/)
-    expect(results.b).toMatch(/issue-B/)
+    expect(results.a).toMatch(/issue-a/)
+    expect(results.b).toMatch(/issue-b/)
   })
 })
