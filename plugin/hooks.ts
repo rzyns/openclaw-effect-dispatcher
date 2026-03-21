@@ -6,6 +6,22 @@
  * IMPORTANT: These hooks fire for ALL subagents in the gateway, not just
  * dispatcher-spawned ones. Each handler checks whether the event's session key
  * matches a row in the dispatcher's SQLite DB. If not, the event is silently ignored.
+ *
+ * DESIGN NOTE — webhook vs ACP spawns
+ * ------------------------------------
+ * The dispatcher spawns agents via the /hooks/agent webhook endpoint.  For
+ * that code path OpenClaw runs the agent as a cron job; it does NOT register a
+ * subagent run record, so neither subagent_spawned nor subagent_ended ever fire.
+ *
+ * Job completion for webhook-spawned agents is therefore handled entirely by
+ * the liveness-checking loop in dispatcher.ts: once the cron session ends the
+ * gateway deletes it, liveness.check() returns "dead", and the dispatcher
+ * removes the claim row.
+ *
+ * The subagent_spawned / subagent_ended hooks exist for forward-compatibility
+ * (e.g. if the spawner is later switched to the ACP sessions.spawn path) and
+ * as a belt-and-suspenders fast path that completes jobs without waiting for
+ * the next liveness poll cycle.
  */
 import { Effect, Option } from "effect"
 import type { PluginLogger } from "openclaw/plugin-sdk"
